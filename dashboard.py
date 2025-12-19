@@ -24,6 +24,54 @@ TIMEFRAMES = {
     "Monthly": ("1mo", "3y")
 }
 
+# Predefined Time Slots (for Hourly timeframe)
+PREDEFINED_TIMES = {
+    "09:15": dt_time(9, 15),
+    "10:15": dt_time(10, 15),
+    "11:15": dt_time(11, 15),
+    "12:15": dt_time(12, 15),
+    "13:15": dt_time(13, 15),
+    "14:15": dt_time(14, 15),
+    "15:15": dt_time(15, 15),
+}
+
+# Predefined Stock Symbols
+PREDEFINED_SYMBOLS = {
+    "NIFTY 50": "^NSEI",
+    "SBIN": "SBIN.NS",
+    "ITC": "ITC.NS",
+    "MARUTI": "MARUTI.NS",
+    "NIFTY BANK": "^NSEBANK",
+    "KOTAKBANK": "KOTAKBANK.NS",
+    "TITAN": "TITAN.NS",
+    "CIPLA": "CIPLA.NS",
+    "ONGC": "ONGC.NS",
+    "WIPRO": "WIPRO.NS",
+    "JSWSTEEL": "JSWSTEEL.NS",
+    "NTPC": "NTPC.NS",
+    "INFY": "INFY.NS",
+    "MOSCHIP": "MOSCHIP.NS",
+    "LTFOODS": "LTFOODS.NS",
+    "CNBK": "CNBK.NS",
+    "ADANIPORTS": "ADANIPORTS.NS",
+    "INDIGO": "INDIGO.NS",
+    "GRANULES": "GRANULES.NS",
+    "COALINDIA": "COALINDIA.NS",
+    "POWERGRID": "POWERGRID.NS",
+    "BPCL": "BPCL.NS",
+    "M&M": "M&M.NS",
+    "TATAMOTORS": "TATAMOTORS.NS",
+    "BHARTIARTL": "BHARTIARTL.NS",
+    "AXISBANK": "AXISBANK.NS",
+    "SENSEX": "^BSESN",
+    # Popular US stocks
+    "AAPL": "AAPL",
+    "MSFT": "MSFT",
+    "GOOGL": "GOOGL",
+    "TSLA": "TSLA",
+    "AMZN": "AMZN",
+}
+
 # Ensure exports directory exists
 os.makedirs(EXPORTS_DIR, exist_ok=True)
 
@@ -62,6 +110,11 @@ class DataFetcher:
         Returns: (corrected_symbol, suggestion_message)
         """
         symbol_upper = symbol.upper().strip()
+        
+        # Check if it's in predefined symbols (reverse lookup)
+        for name, yf_symbol in PREDEFINED_SYMBOLS.items():
+            if symbol_upper == yf_symbol.upper() or symbol_upper == name.upper():
+                return yf_symbol, None  # Already correct, no suggestion needed
         
         # Common Indian index mappings
         indian_indices = {
@@ -106,13 +159,64 @@ class DataFetcher:
             # Validate and correct symbol
             corrected_symbol, suggestion = DataFetcher.validate_and_suggest_symbol(symbol)
             
-            interval, period = TIMEFRAMES[timeframe]
+            interval, base_period = TIMEFRAMES[timeframe]
             
-            # Fetch data from yfinance
-            ticker = yf.Ticker(corrected_symbol)
-            df = ticker.history(period=period, interval=interval)
+            # Extended periods for when more data is needed
+            extended_periods = {
+                "Hourly": ["7d", "30d", "60d", "90d", "1y"],
+                "Daily": ["3mo", "6mo", "1y", "2y", "5y"],
+                "Weekly": ["1y", "2y", "5y", "10y", "max"],
+                "Monthly": ["3y", "5y", "10y", "15y", "max"]
+            }
             
-            if df.empty:
+            # Try fetching with progressively longer periods until we get enough candles
+            periods_to_try = extended_periods.get(timeframe, [base_period])
+            
+            # Start from base period and extend if needed
+            if base_period not in periods_to_try:
+                periods_to_try.insert(0, base_period)
+            
+            df_filtered = None
+            last_error = None
+            
+            # Create reference datetime (timezone-naive)
+            if timeframe == "Hourly":
+                ref_datetime = pd.to_datetime(f"{date} {time_str}")
+            else:
+                ref_datetime = pd.to_datetime(date)
+            
+            # Check if reference date is in the future
+            if ref_datetime > pd.Timestamp.now():
+                return None, f"❌ Reference date/time is in the future. Please select a past date."
+            
+            for period in periods_to_try:
+                try:
+                    # Fetch data from yfinance
+                    ticker = yf.Ticker(corrected_symbol)
+                    df = ticker.history(period=period, interval=interval)
+                    
+                    if df.empty:
+                        continue
+                    
+                    # Remove timezone information from index to avoid comparison issues
+                    if df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
+                    
+                    # Filter: only previous completed candles (exclude current/incomplete)
+                    df_filtered = df[df.index < ref_datetime]
+                    
+                    if df_filtered.empty:
+                        continue
+                    
+                    # Check if we have enough candles
+                    if len(df_filtered) >= count:
+                        break
+                        
+                except Exception as e:
+                    last_error = str(e)
+                    continue
+            
+            if df_filtered is None or df_filtered.empty:
                 # Provide helpful suggestions
                 suggestions = []
                 if 'NIFTY' in symbol.upper():
@@ -130,33 +234,13 @@ class DataFetcher:
                 
                 return None, error_msg
             
-            # Remove timezone information from index to avoid comparison issues
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
+            # Get last 'count' candles and sort chronologically (newest first, then older)
+            # This shows the most recent previous candle first, then older ones
+            result = df_filtered.tail(count).sort_index(ascending=False)
             
-            # Create reference datetime (timezone-naive)
-            if timeframe == "Hourly":
-                ref_datetime = pd.to_datetime(f"{date} {time_str}")
-            else:
-                ref_datetime = pd.to_datetime(date)
-            
-            # Check if reference date is in the future
-            if ref_datetime > pd.Timestamp.now():
-                return None, f"❌ Reference date/time is in the future. Please select a past date."
-            
-            # Filter: only previous completed candles (exclude current/incomplete)
-            df_filtered = df[df.index < ref_datetime]
-            
-            if df_filtered.empty:
-                ref_display = f"{date} {time_str}" if timeframe == "Hourly" else date
-                return None, f"❌ No completed candles found before {ref_display}. Try selecting an earlier date/time."
-            
-            # Get last 'count' candles
-            result = df_filtered.tail(count)
-            
-            # Check if we got fewer candles than requested
+            # Check if we got fewer candles than requested (even after extending period)
             if len(result) < count:
-                warning_msg = f"⚠️ Only {len(result)} candles available (requested {count})"
+                warning_msg = f"⚠️ Only {len(result)} candles available (requested {count}). Maximum available data fetched."
                 return result[['Open', 'High', 'Low', 'Close']], warning_msg
             
             # Return data with suggestion if symbol was corrected
@@ -278,12 +362,25 @@ def main():
         
         # Input Form
         with st.form("stock_input_form"):
-            symbol = st.text_input(
-                "Stock Symbol",
-                value="AAPL",
-                placeholder="e.g., AAPL, MSFT, GOOGL",
-                help="Enter the stock ticker symbol"
-            ).upper()
+            # Symbol selection with predefined options
+            symbol_option = st.selectbox(
+                "Select Stock Symbol (or type custom)",
+                options=["Custom"] + list(PREDEFINED_SYMBOLS.keys()),
+                index=0,
+                help="Choose from predefined symbols or select 'Custom' to enter manually"
+            )
+            
+            if symbol_option == "Custom":
+                symbol = st.text_input(
+                    "Stock Symbol",
+                    value="AAPL",
+                    placeholder="e.g., AAPL, MSFT, GOOGL, ^NSEI",
+                    help="Enter the stock ticker symbol"
+                ).upper()
+            else:
+                # Use predefined symbol
+                symbol = PREDEFINED_SYMBOLS[symbol_option]
+                st.info(f"📊 Selected: {symbol_option} → {symbol}")
             
             col_date, col_time = st.columns(2)
             
@@ -296,11 +393,23 @@ def main():
             
             with col_time:
                 if timeframe == "Hourly":
-                    ref_time = st.time_input(
-                        "Reference Time",
-                        value=dt_time(0, 0),
-                        help="Time to use as reference (Hourly only)"
+                    # Quick time selection
+                    time_option = st.selectbox(
+                        "Quick Time Selection",
+                        options=["Custom"] + list(PREDEFINED_TIMES.keys()),
+                        index=0,
+                        help="Select a predefined time slot or choose 'Custom' for manual entry"
                     )
+                    
+                    if time_option == "Custom":
+                        ref_time = st.time_input(
+                            "Reference Time",
+                            value=dt_time(9, 15),
+                            help="Time to use as reference (Hourly only)"
+                        )
+                    else:
+                        ref_time = PREDEFINED_TIMES[time_option]
+                        st.info(f"⏰ Selected: {time_option}")
                 else:
                     ref_time = dt_time(0, 0)
                     st.text_input(
@@ -421,33 +530,87 @@ def main():
     if 'current_data' in st.session_state and st.session_state['current_data'] is not None:
         data = st.session_state['current_data']
         
+        # Determine currency symbol (INR for Indian stocks, USD for others)
+        current_symbol = st.session_state.get('current_symbol', '')
+        is_indian_stock = current_symbol.endswith('.NS') or current_symbol.startswith('^')
+        currency_symbol = '₹' if is_indian_stock else '$'
+        
         st.markdown("---")
         st.header("📊 OHLC Data Table")
         
-        # Prepare display dataframe
+        # Add info about trading days
+        st.info("ℹ️ **Note:** Only trading days (Monday-Friday) are shown. Weekends and holidays are automatically excluded by the data source.")
+        
+        # Prepare display dataframe (data is already sorted - newest previous candle first)
         display_df = data.copy()
+        # Ensure order: most recent previous candle first, then older ones
+        display_df = display_df.sort_index(ascending=False)
         display_df.insert(0, 'No', range(1, len(display_df) + 1))
         display_df.insert(1, 'Period', display_df.index)
         display_df = display_df.reset_index(drop=True)
         
-        # Format numeric columns
-        display_df['Open'] = display_df['Open'].apply(lambda x: f"{x:.2f}")
-        display_df['High'] = display_df['High'].apply(lambda x: f"{x:.2f}")
-        display_df['Low'] = display_df['Low'].apply(lambda x: f"{x:.2f}")
-        display_df['Close'] = display_df['Close'].apply(lambda x: f"{x:.2f}")
+        # Add day of week column for clarity
+        display_df['Day'] = pd.to_datetime(display_df['Period']).dt.day_name()
         
-        # Display table
+        # Reorder columns: No, Period, Day, Open, High, Low, Close
+        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close']
+        display_df = display_df[cols]
+        
+        # Format numeric columns with currency and thousand separators for better readability
+        def format_currency(value):
+            """Format number with currency symbol and thousand separators"""
+            return f"{currency_symbol}{value:,.2f}"
+        
+        # Store original numeric values for statistics
+        numeric_data = data.copy()
+        
+        # Format display values
+        display_df['Open'] = display_df['Open'].apply(format_currency)
+        display_df['High'] = display_df['High'].apply(format_currency)
+        display_df['Low'] = display_df['Low'].apply(format_currency)
+        display_df['Close'] = display_df['Close'].apply(format_currency)
+        
+        # Display table with enhanced formatting and column configuration
         st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "No": st.column_config.NumberColumn("No", width="small"),
-                "Period": st.column_config.DatetimeColumn("Period", format="YYYY-MM-DD HH:mm:ss"),
-                "Open": st.column_config.TextColumn("Open", width="medium"),
-                "High": st.column_config.TextColumn("High", width="medium"),
-                "Low": st.column_config.TextColumn("Low", width="medium"),
-                "Close": st.column_config.TextColumn("Close", width="medium")
+                "No": st.column_config.NumberColumn(
+                    "No",
+                    width="small",
+                    format="%d"
+                ),
+                "Period": st.column_config.DatetimeColumn(
+                    "Period",
+                    format="YYYY-MM-DD HH:mm:ss",
+                    width="medium"
+                ),
+                "Day": st.column_config.TextColumn(
+                    "Day",
+                    width="small",
+                    help="Day of the week (weekends are automatically excluded)"
+                ),
+                "Open": st.column_config.TextColumn(
+                    "Open",
+                    width="medium",
+                    help="Opening price"
+                ),
+                "High": st.column_config.TextColumn(
+                    "High",
+                    width="medium",
+                    help="Highest price"
+                ),
+                "Low": st.column_config.TextColumn(
+                    "Low",
+                    width="medium",
+                    help="Lowest price"
+                ),
+                "Close": st.column_config.TextColumn(
+                    "Close",
+                    width="medium",
+                    help="Closing price"
+                )
             }
         )
         
@@ -456,13 +619,13 @@ def main():
         stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
         
         with stat_col1:
-            st.metric("Average Open", f"${data['Open'].mean():.2f}")
+            st.metric("Average Open", f"{currency_symbol}{numeric_data['Open'].mean():,.2f}")
         with stat_col2:
-            st.metric("Average High", f"${data['High'].mean():.2f}")
+            st.metric("Average High", f"{currency_symbol}{numeric_data['High'].mean():,.2f}")
         with stat_col3:
-            st.metric("Average Low", f"${data['Low'].mean():.2f}")
+            st.metric("Average Low", f"{currency_symbol}{numeric_data['Low'].mean():,.2f}")
         with stat_col4:
-            st.metric("Average Close", f"${data['Close'].mean():.2f}")
+            st.metric("Average Close", f"{currency_symbol}{numeric_data['Close'].mean():,.2f}")
         
         # CSV Export
         st.markdown("---")
