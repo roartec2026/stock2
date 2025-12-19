@@ -253,7 +253,7 @@ class DataFetcher:
             return None, f"❌ Error fetching data: {error_msg}"
 
 
-def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str, running_avg_series: pd.Series = None) -> str:
+def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str, running_avg_series: pd.Series = None, running_stddev_series: pd.Series = None) -> str:
     """Export DataFrame to CSV file."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{symbol}_{timeframe}_{timestamp}.csv"
@@ -268,6 +268,12 @@ def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str, running_avg_ser
         # Map running average values based on index
         running_avg_dict = running_avg_series.to_dict()
         export_df['Running Average (Open)'] = export_df.index.map(running_avg_dict)
+    
+    # Add Running STDDEV.S (Open) column if provided (expanding stddev logic)
+    if running_stddev_series is not None:
+        # Map running STDDEV.S values based on index (NaN will be preserved in CSV)
+        running_stddev_dict = running_stddev_series.to_dict()
+        export_df['Running STDDEV.S (Open)'] = export_df.index.map(running_stddev_dict)
     
     export_df.to_csv(filepath, index=False)
     
@@ -576,12 +582,22 @@ def main():
         # This works for any timeframe: calculates average of all Open values from first candle to current candle
         running_avg = numeric_data_sorted['Open'].expanding().mean()
         
-        # Map running average back to display_df order (newest first for display)
-        # Create a mapping from index to running average
+        # Calculate Running STDDEV.S (Open) using expanding().std(ddof=1) - sample standard deviation
+        # Excel equivalent: =STDEV.S($Open$1:Open_i)
+        # ddof=1 ensures sample standard deviation (n-1 in denominator) like Excel STDEV.S
+        # Row 1 will be NaN (needs at least 2 values for standard deviation)
+        running_stddev = numeric_data_sorted['Open'].expanding().std(ddof=1)
+        
+        # Map running average and STDDEV back to display_df order (newest first for display)
+        # Create mappings from index to values
         running_avg_dict = running_avg.to_dict()
+        running_stddev_dict = running_stddev.to_dict()
         
         # Add Running Average (Open) column - map values based on Period index
         display_df['Running Average (Open)'] = display_df['Period'].map(running_avg_dict)
+        
+        # Add Running STDDEV.S (Open) column - map values based on Period index
+        display_df['Running STDDEV.S (Open)'] = display_df['Period'].map(running_stddev_dict)
         
         # Format display values
         display_df['Open'] = display_df['Open'].apply(format_currency)
@@ -590,8 +606,16 @@ def main():
         display_df['Close'] = display_df['Close'].apply(format_currency)
         display_df['Running Average (Open)'] = display_df['Running Average (Open)'].apply(format_currency)
         
-        # Reorder columns: No, Period, Day, Open, High, Low, Close, Running Average (Open)
-        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close', 'Running Average (Open)']
+        # Format Running STDDEV.S (Open) - handle NaN for first row (show blank)
+        def format_stddev(value):
+            if pd.isna(value):
+                return "—"  # Show blank/dash for NaN (row 1 needs at least 2 values)
+            return format_currency(value)
+        
+        display_df['Running STDDEV.S (Open)'] = display_df['Running STDDEV.S (Open)'].apply(format_stddev)
+        
+        # Reorder columns: No, Period, Day, Open, High, Low, Close, Running Average (Open), Running STDDEV.S (Open)
+        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close', 'Running Average (Open)', 'Running STDDEV.S (Open)']
         display_df = display_df[cols]
         
         # Display table with enhanced formatting and column configuration
@@ -639,6 +663,11 @@ def main():
                     "Running Average (Open)",
                     width="medium",
                     help="Cumulative average of Open prices from row 1 to current row (Excel =AVERAGE($Open$1:Open_i)). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+                ),
+                "Running STDDEV.S (Open)": st.column_config.TextColumn(
+                    "Running STDDEV.S (Open)",
+                    width="medium",
+                    help="Cumulative sample standard deviation of Open prices from row 1 to current row (Excel =STDEV.S($Open$1:Open_i)). Row 1 is blank (needs at least 2 values). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
                 )
             }
         )
@@ -667,15 +696,17 @@ def main():
         
         with col_export2:
             if st.button("📥 Export to CSV", use_container_width=True):
-                # Calculate Running Average (Open) for CSV export (expanding mean logic)
+                # Calculate Running Average (Open) and Running STDDEV.S (Open) for CSV export (expanding logic)
                 # Ensure chronological order for correct cumulative calculation
                 numeric_data_sorted = numeric_data.sort_index(ascending=True)
                 running_avg_series = numeric_data_sorted['Open'].expanding().mean()
+                running_stddev_series = numeric_data_sorted['Open'].expanding().std(ddof=1)  # Sample STDDEV (STDEV.S)
                 filepath = export_to_csv(
                     data,
                     st.session_state.get('current_symbol', 'STOCK'),
                     st.session_state.get('current_timeframe', 'Daily'),
-                    running_avg_series=running_avg_series
+                    running_avg_series=running_avg_series,
+                    running_stddev_series=running_stddev_series
                 )
                 st.success(f"✅ Data exported to: `{filepath}`")
                 st.download_button(
