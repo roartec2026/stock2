@@ -253,7 +253,7 @@ class DataFetcher:
             return None, f"❌ Error fetching data: {error_msg}"
 
 
-def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str) -> str:
+def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str, running_avg_series: pd.Series = None) -> str:
     """Export DataFrame to CSV file."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{symbol}_{timeframe}_{timestamp}.csv"
@@ -262,6 +262,13 @@ def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str) -> str:
     # Prepare data for export
     export_df = df.copy()
     export_df.insert(0, 'Period', export_df.index)
+    
+    # Add Running Average (Open) column if provided (expanding mean logic)
+    if running_avg_series is not None:
+        # Map running average values based on index
+        running_avg_dict = running_avg_series.to_dict()
+        export_df['Running Average (Open)'] = export_df.index.map(running_avg_dict)
+    
     export_df.to_csv(filepath, index=False)
     
     return filepath
@@ -552,10 +559,6 @@ def main():
         # Add day of week column for clarity
         display_df['Day'] = pd.to_datetime(display_df['Period']).dt.day_name()
         
-        # Reorder columns: No, Period, Day, Open, High, Low, Close
-        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close']
-        display_df = display_df[cols]
-        
         # Format numeric columns with currency and thousand separators for better readability
         def format_currency(value):
             """Format number with currency symbol and thousand separators"""
@@ -564,11 +567,32 @@ def main():
         # Store original numeric values for statistics
         numeric_data = data.copy()
         
+        # Calculate Running Average (Open) using expanding mean (Excel =AVERAGE($Open$1:Open_i) logic)
+        # Works for all timeframes: Hourly, Daily, Weekly, Monthly
+        # First, ensure data is in chronological order (oldest first) for correct cumulative calculation
+        numeric_data_sorted = numeric_data.sort_index(ascending=True)
+        
+        # Calculate running average using expanding().mean() - cumulative average from row 1 to current row
+        # This works for any timeframe: calculates average of all Open values from first candle to current candle
+        running_avg = numeric_data_sorted['Open'].expanding().mean()
+        
+        # Map running average back to display_df order (newest first for display)
+        # Create a mapping from index to running average
+        running_avg_dict = running_avg.to_dict()
+        
+        # Add Running Average (Open) column - map values based on Period index
+        display_df['Running Average (Open)'] = display_df['Period'].map(running_avg_dict)
+        
         # Format display values
         display_df['Open'] = display_df['Open'].apply(format_currency)
         display_df['High'] = display_df['High'].apply(format_currency)
         display_df['Low'] = display_df['Low'].apply(format_currency)
         display_df['Close'] = display_df['Close'].apply(format_currency)
+        display_df['Running Average (Open)'] = display_df['Running Average (Open)'].apply(format_currency)
+        
+        # Reorder columns: No, Period, Day, Open, High, Low, Close, Running Average (Open)
+        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close', 'Running Average (Open)']
+        display_df = display_df[cols]
         
         # Display table with enhanced formatting and column configuration
         st.dataframe(
@@ -610,6 +634,11 @@ def main():
                     "Close",
                     width="medium",
                     help="Closing price"
+                ),
+                "Running Average (Open)": st.column_config.TextColumn(
+                    "Running Average (Open)",
+                    width="medium",
+                    help="Cumulative average of Open prices from row 1 to current row (Excel =AVERAGE($Open$1:Open_i)). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
                 )
             }
         )
@@ -638,10 +667,15 @@ def main():
         
         with col_export2:
             if st.button("📥 Export to CSV", use_container_width=True):
+                # Calculate Running Average (Open) for CSV export (expanding mean logic)
+                # Ensure chronological order for correct cumulative calculation
+                numeric_data_sorted = numeric_data.sort_index(ascending=True)
+                running_avg_series = numeric_data_sorted['Open'].expanding().mean()
                 filepath = export_to_csv(
                     data,
                     st.session_state.get('current_symbol', 'STOCK'),
-                    st.session_state.get('current_timeframe', 'Daily')
+                    st.session_state.get('current_timeframe', 'Daily'),
+                    running_avg_series=running_avg_series
                 )
                 st.success(f"✅ Data exported to: `{filepath}`")
                 st.download_button(
