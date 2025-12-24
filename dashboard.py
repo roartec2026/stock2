@@ -263,15 +263,15 @@ def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str, running_avg_ser
     export_df = df.copy()
     export_df.insert(0, 'Period', export_df.index)
     
-    # Add Running Average (Open) column if provided (expanding mean logic)
+    # Add Running Average (Open) column if provided (rolling window of 20 rows)
     if running_avg_series is not None:
         # Map running average values based on index
         running_avg_dict = running_avg_series.to_dict()
         export_df['Running Average (Open)'] = export_df.index.map(running_avg_dict)
     
-    # Add Running STDDEV.S (Open) column if provided (expanding stddev logic)
+    # Add Running STDDEV.S (Open) column if provided (rolling window of 20 rows)
     if running_stddev_series is not None:
-        # Map running STDDEV.S values based on index (NaN will be preserved in CSV)
+        # Map running STDDEV.S values based on index (NaN will be preserved in CSV for first 19 rows)
         running_stddev_dict = running_stddev_series.to_dict()
         export_df['Running STDDEV.S (Open)'] = export_df.index.map(running_stddev_dict)
     
@@ -659,20 +659,24 @@ def main():
         # Store original numeric values for statistics
         numeric_data = data.copy()
         
-        # Calculate Running Average (Open) using expanding mean (Excel =AVERAGE($Open$1:Open_i) logic)
+        # Calculate Running Average (Open) using rolling window of 20 rows
         # Works for all timeframes: Hourly, Daily, Weekly, Monthly
-        # First, ensure data is in chronological order (oldest first) for correct cumulative calculation
+        # First, ensure data is in chronological order (oldest first) for correct rolling calculation
         numeric_data_sorted = numeric_data.sort_index(ascending=True)
         
-        # Calculate running average using expanding().mean() - cumulative average from row 1 to current row
-        # This works for any timeframe: calculates average of all Open values from first candle to current candle
-        running_avg = numeric_data_sorted['Open'].expanding().mean()
+        # Calculate rolling average using rolling(window=20).mean() - average of last 20 Open values
+        # Row 1: average of rows 1-20
+        # Row 2: average of rows 2-21
+        # Row 3: average of rows 3-22
+        # First 19 rows will be NaN (need at least 20 rows to calculate)
+        # This works for any timeframe: calculates average of 20 consecutive candles
+        running_avg = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).mean()
         
-        # Calculate Running STDDEV.S (Open) using expanding().std(ddof=1) - sample standard deviation
-        # Excel equivalent: =STDEV.S($Open$1:Open_i)
+        # Calculate Running STDDEV.S (Open) using rolling(window=20).std(ddof=1) - sample standard deviation
+        # Excel equivalent: =STDEV.S(Open_i:Open_i+19) for row i
         # ddof=1 ensures sample standard deviation (n-1 in denominator) like Excel STDEV.S
-        # Row 1 will be NaN (needs at least 2 values for standard deviation)
-        running_stddev = numeric_data_sorted['Open'].expanding().std(ddof=1)
+        # First 19 rows will be NaN (needs at least 20 values for rolling standard deviation)
+        running_stddev = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)
         
         # Map running average and STDDEV back to display_df order (newest first for display)
         # Create mappings from index to values
@@ -795,12 +799,19 @@ def main():
         display_df['High'] = display_df['High'].apply(format_currency)
         display_df['Low'] = display_df['Low'].apply(format_currency)
         display_df['Close'] = display_df['Close'].apply(format_currency)
-        display_df['Running Average (Open)'] = display_df['Running Average (Open)'].apply(format_currency)
         
-        # Format Running STDDEV.S (Open) - handle NaN for first row (show blank)
+        # Format Running Average (Open) - handle NaN for first 19 rows (show blank)
+        def format_running_avg(value):
+            if pd.isna(value):
+                return "—"  # Show blank/dash for NaN (first 19 rows need at least 20 values for rolling calculation)
+            return format_currency(value)
+        
+        display_df['Running Average (Open)'] = display_df['Running Average (Open)'].apply(format_running_avg)
+        
+        # Format Running STDDEV.S (Open) - handle NaN for first 19 rows (show blank)
         def format_stddev(value):
             if pd.isna(value):
-                return "—"  # Show blank/dash for NaN (row 1 needs at least 2 values)
+                return "—"  # Show blank/dash for NaN (first 19 rows need at least 20 values for rolling calculation)
             return format_currency(value)
         
         display_df['Running STDDEV.S (Open)'] = display_df['Running STDDEV.S (Open)'].apply(format_stddev)
@@ -933,12 +944,12 @@ def main():
                 "Running Average (Open)": st.column_config.TextColumn(
                     "Running Average (Open)",
                     width="medium",
-                    help="Cumulative average of Open prices from row 1 to current row (Excel =AVERAGE($Open$1:Open_i)). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+                    help="Rolling average of last 20 Open prices (Row 1: avg of rows 1-20, Row 2: avg of rows 2-21, etc.). First 19 rows show blank (need 20 rows). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
                 ),
                 "Running STDDEV.S (Open)": st.column_config.TextColumn(
                     "Running STDDEV.S (Open)",
                     width="medium",
-                    help="Cumulative sample standard deviation of Open prices from row 1 to current row (Excel =STDEV.S($Open$1:Open_i)). Row 1 is blank (needs at least 2 values). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+                    help="Rolling sample standard deviation of last 20 Open prices (Row 1: stddev of rows 1-20, Row 2: stddev of rows 2-21, etc.). First 19 rows show blank (need 20 rows). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
                 ),
                 "UB × 2.8": st.column_config.TextColumn(
                     "UB × 2.8",
@@ -1017,11 +1028,11 @@ def main():
         
         with col_export2:
             if st.button("📥 Export to CSV", use_container_width=True):
-                # Calculate Running Average (Open) and Running STDDEV.S (Open) for CSV export (expanding logic)
-                # Ensure chronological order for correct cumulative calculation
+                # Calculate Running Average (Open) and Running STDDEV.S (Open) for CSV export (rolling window of 20 rows)
+                # Ensure chronological order for correct rolling calculation
                 numeric_data_sorted = numeric_data.sort_index(ascending=True)
-                running_avg_series = numeric_data_sorted['Open'].expanding().mean()
-                running_stddev_series = numeric_data_sorted['Open'].expanding().std(ddof=1)  # Sample STDDEV (STDEV.S)
+                running_avg_series = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).mean()
+                running_stddev_series = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)  # Sample STDDEV (STDEV.S)
                 filepath = export_to_csv(
                     data,
                     st.session_state.get('current_symbol', 'STOCK'),
