@@ -1,6 +1,6 @@
-# Stock OHLC Analysis Admin Dashboard
+# Stock ROARSTAR Analysis Admin Dashboard
 
-A professional web-based admin dashboard for analyzing stock OHLC (Open, High, Low, Close) data using Streamlit and Python.
+A professional web-based admin dashboard for analyzing stock ROARSTAR (Open, High, Low, Close) data using Streamlit and Python.
 
 ## Features
 
@@ -59,7 +59,7 @@ The dashboard will automatically open in your default web browser at `http://loc
 3. **Set Reference Date**: Select the reference date (and time for Hourly timeframe)
 4. **Set Candle Count**: Enter the number of previous completed candles to fetch
 5. **Fetch Data**: Click the "🚀 Fetch Data" button
-6. **View Results**: The OHLC data table and statistics will be displayed
+6. **View Results**: The ROARSTAR data table and statistics will be displayed
 7. **Export CSV**: Click "📥 Export to CSV" to save the data
 
 ### Sidebar Features

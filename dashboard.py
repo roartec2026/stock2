@@ -1,6 +1,6 @@
 """
-Stock OHLC Analysis Admin Dashboard
-A professional web-based admin dashboard for analyzing stock OHLC data using Streamlit.
+Roarstar Stock Analysis Admin Dashboard
+A professional web-based admin dashboard for analyzing Roarstar stock data using Streamlit.
 """
 
 import streamlit as st
@@ -138,9 +138,9 @@ class DataFetcher:
         return symbol_upper, None
     
     @staticmethod
-    def fetch_ohlc(symbol: str, timeframe: str, date: str, time_str: str, count: int) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
+    def fetch_ROARSTAR(symbol: str, timeframe: str, date: str, time_str: str, count: int) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
         """
-        Fetch OHLC data for a stock.
+        Fetch ROARSTAR data for a stock.
         
         Args:
             symbol: Stock symbol
@@ -275,6 +275,92 @@ def export_to_csv(df: pd.DataFrame, symbol: str, timeframe: str, running_avg_ser
         running_stddev_dict = running_stddev_series.to_dict()
         export_df['Running STDDEV.S (Open)'] = export_df.index.map(running_stddev_dict)
     
+    # Calculate UB × 2.8, UB × 2.1, UB*1.4, UB*.7, UB*.35, LB*2.8, LB*2.1, LB*1.4, LB*.7, and LB*.35 = Average ± (STDDEV.S × multiplier) for CSV export
+    if running_avg_series is not None and running_stddev_series is not None:
+        running_avg_dict = running_avg_series.to_dict()
+        running_stddev_dict = running_stddev_series.to_dict()
+        
+        def calculate_ub_2_8_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg + (stddev * 2.8)
+        
+        def calculate_ub_2_1_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg + (stddev * 2.1)
+        
+        def calculate_ub_1_4_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg + (stddev * 1.4)
+        
+        def calculate_ub_0_7_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg + (stddev * 0.7)
+        
+        def calculate_ub_0_35_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg + (stddev * 0.35)
+        
+        def calculate_lb_2_8_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg - (stddev * 2.8)
+        
+        def calculate_lb_2_1_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg - (stddev * 2.1)
+        
+        def calculate_lb_1_4_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg - (stddev * 1.4)
+        
+        def calculate_lb_0_7_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg - (stddev * 0.7)
+        
+        def calculate_lb_0_35_csv(idx):
+            avg = running_avg_dict.get(idx)
+            stddev = running_stddev_dict.get(idx)
+            if pd.isna(avg) or pd.isna(stddev) or avg is None or stddev is None:
+                return None
+            return avg - (stddev * 0.35)
+        
+        export_df['UB × 2.8'] = export_df.index.map(calculate_ub_2_8_csv)
+        export_df['UB × 2.1'] = export_df.index.map(calculate_ub_2_1_csv)
+        export_df['UB*1.4'] = export_df.index.map(calculate_ub_1_4_csv)
+        export_df['UB*.7'] = export_df.index.map(calculate_ub_0_7_csv)
+        export_df['UB*.35'] = export_df.index.map(calculate_ub_0_35_csv)
+        export_df['LB*2.8'] = export_df.index.map(calculate_lb_2_8_csv)
+        export_df['LB*2.1'] = export_df.index.map(calculate_lb_2_1_csv)
+        export_df['LB*1.4'] = export_df.index.map(calculate_lb_1_4_csv)
+        export_df['LB*.7'] = export_df.index.map(calculate_lb_0_7_csv)
+        export_df['LB*.35'] = export_df.index.map(calculate_lb_0_35_csv)
+    
     export_df.to_csv(filepath, index=False)
     
     return filepath
@@ -285,7 +371,7 @@ def main():
     
     # Page configuration
     st.set_page_config(
-        page_title="Stock OHLC Analysis Dashboard",
+        page_title="Roarstar Stock Analysis Dashboard",
         page_icon="📊",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -320,11 +406,11 @@ def main():
     """, unsafe_allow_html=True)
     
     # Header
-    st.markdown('<div class="main-header">📊 Stock OHLC Analysis Admin Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📊 Roarstar Stock Analysis Admin Dashboard</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
-        st.title("ADMIN DASHBOARD")
+        st.title("Stock Analysis")
         st.markdown("---")
         
         # Timeframe Selection
@@ -460,7 +546,7 @@ def main():
                 date_str = ref_date.strftime("%Y-%m-%d")
                 time_str = ref_time.strftime("%H:%M")
                 
-                data, error_msg = DataFetcher.fetch_ohlc(symbol, timeframe, date_str, time_str, count)
+                data, error_msg = DataFetcher.fetch_ROARSTAR(symbol, timeframe, date_str, time_str, count)
                 
                 if data is not None and not data.empty:
                     st.session_state['current_data'] = data
@@ -520,7 +606,7 @@ def main():
             date_str = refresh_date.strftime("%Y-%m-%d")
             time_str = refresh_time.strftime("%H:%M")
             
-            data, error_msg = DataFetcher.fetch_ohlc(
+            data, error_msg = DataFetcher.fetch_ROARSTAR(
                 refresh_symbol,
                 refresh_timeframe,
                 date_str,
@@ -549,7 +635,7 @@ def main():
         currency_symbol = '₹' if is_indian_stock else '$'
         
         st.markdown("---")
-        st.header("📊 OHLC Data Table")
+        st.header("📊 ROARSTAR Data Table")
         
         # Add info about trading days
         st.info("ℹ️ **Note:** Only trading days (Monday-Friday) are shown. Weekends and holidays are automatically excluded by the data source.")
@@ -599,6 +685,111 @@ def main():
         # Add Running STDDEV.S (Open) column - map values based on Period index
         display_df['Running STDDEV.S (Open)'] = display_df['Period'].map(running_stddev_dict)
         
+        # Calculate UB × 2.8 = Average + (STDDEV.S × 2.8)
+        # Excel equivalent: =F22 + G22 * 2.8
+        # Store numeric values before formatting for calculation
+        running_avg_numeric = display_df['Running Average (Open)'].copy()
+        running_stddev_numeric = display_df['Running STDDEV.S (Open)'].copy()
+        
+        # Calculate UB × 2.8 row-wise: Average + (STDDEV.S × 2.8)
+        def calculate_ub_2_8(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg + (stddev * 2.8)
+        
+        display_df['UB × 2.8'] = [calculate_ub_2_8(avg, stddev) 
+                                   for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate UB × 2.1 row-wise: Average + (STDDEV.S × 2.1)
+        # Excel equivalent: =F22 + G22 * 2.1
+        def calculate_ub_2_1(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg + (stddev * 2.1)
+        
+        display_df['UB × 2.1'] = [calculate_ub_2_1(avg, stddev) 
+                                   for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate UB*1.4 row-wise: Average + (STDDEV.S × 1.4)
+        # Excel equivalent: =F22 + G22 * 1.4
+        def calculate_ub_1_4(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg + (stddev * 1.4)
+        
+        display_df['UB*1.4'] = [calculate_ub_1_4(avg, stddev) 
+                                for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate UB*.7 row-wise: Average + (STDDEV.S × 0.7)
+        # Excel equivalent: =F22 + G22 * 0.7
+        def calculate_ub_0_7(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg + (stddev * 0.7)
+        
+        display_df['UB*.7'] = [calculate_ub_0_7(avg, stddev) 
+                               for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate UB*.35 row-wise: Average + (STDDEV.S × 0.35)
+        # Excel equivalent: =F22 + G22 * 0.35
+        def calculate_ub_0_35(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg + (stddev * 0.35)
+        
+        display_df['UB*.35'] = [calculate_ub_0_35(avg, stddev) 
+                                for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate LB*2.8 row-wise: Average - (STDDEV.S × 2.8)
+        # Excel equivalent: =F22 - G22 * 2.8
+        def calculate_lb_2_8(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg - (stddev * 2.8)
+        
+        display_df['LB*2.8'] = [calculate_lb_2_8(avg, stddev) 
+                                for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate LB*2.1 row-wise: Average - (STDDEV.S × 2.1)
+        # Excel equivalent: =F22 - G22 * 2.1
+        def calculate_lb_2_1(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg - (stddev * 2.1)
+        
+        display_df['LB*2.1'] = [calculate_lb_2_1(avg, stddev) 
+                                for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate LB*1.4 row-wise: Average - (STDDEV.S × 1.4)
+        # Excel equivalent: =F22 - G22 * 1.4
+        def calculate_lb_1_4(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg - (stddev * 1.4)
+        
+        display_df['LB*1.4'] = [calculate_lb_1_4(avg, stddev) 
+                                for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate LB*.7 row-wise: Average - (STDDEV.S × 0.7)
+        # Excel equivalent: =F22 - G22 * 0.7
+        def calculate_lb_0_7(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg - (stddev * 0.7)
+        
+        display_df['LB*.7'] = [calculate_lb_0_7(avg, stddev) 
+                               for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
+        # Calculate LB*.35 row-wise: Average - (STDDEV.S × 0.35)
+        # Excel equivalent: =F22 - G22 * 0.35
+        def calculate_lb_0_35(avg, stddev):
+            if pd.isna(avg) or pd.isna(stddev):
+                return None  # Return None if either value is missing
+            return avg - (stddev * 0.35)
+        
+        display_df['LB*.35'] = [calculate_lb_0_35(avg, stddev) 
+                                for avg, stddev in zip(running_avg_numeric, running_stddev_numeric)]
+        
         # Format display values
         display_df['Open'] = display_df['Open'].apply(format_currency)
         display_df['High'] = display_df['High'].apply(format_currency)
@@ -614,8 +805,88 @@ def main():
         
         display_df['Running STDDEV.S (Open)'] = display_df['Running STDDEV.S (Open)'].apply(format_stddev)
         
-        # Reorder columns: No, Period, Day, Open, High, Low, Close, Running Average (Open), Running STDDEV.S (Open)
-        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close', 'Running Average (Open)', 'Running STDDEV.S (Open)']
+        # Format UB × 2.8 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_ub_2_8(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['UB × 2.8'] = display_df['UB × 2.8'].apply(format_ub_2_8)
+        
+        # Format UB × 2.1 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_ub_2_1(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['UB × 2.1'] = display_df['UB × 2.1'].apply(format_ub_2_1)
+        
+        # Format UB*1.4 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_ub_1_4(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['UB*1.4'] = display_df['UB*1.4'].apply(format_ub_1_4)
+        
+        # Format UB*.7 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_ub_0_7(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['UB*.7'] = display_df['UB*.7'].apply(format_ub_0_7)
+        
+        # Format UB*.35 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_ub_0_35(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['UB*.35'] = display_df['UB*.35'].apply(format_ub_0_35)
+        
+        # Format LB*2.8 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_lb_2_8(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['LB*2.8'] = display_df['LB*2.8'].apply(format_lb_2_8)
+        
+        # Format LB*2.1 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_lb_2_1(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['LB*2.1'] = display_df['LB*2.1'].apply(format_lb_2_1)
+        
+        # Format LB*1.4 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_lb_1_4(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['LB*1.4'] = display_df['LB*1.4'].apply(format_lb_1_4)
+        
+        # Format LB*.7 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_lb_0_7(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['LB*.7'] = display_df['LB*.7'].apply(format_lb_0_7)
+        
+        # Format LB*.35 - handle None/NaN (show blank if Average or STDDEV.S is missing)
+        def format_lb_0_35(value):
+            if pd.isna(value) or value is None:
+                return "—"  # Show blank/dash if calculation not possible
+            return format_currency(value)
+        
+        display_df['LB*.35'] = display_df['LB*.35'].apply(format_lb_0_35)
+        
+        # Reorder columns: No, Period, Day, Open, High, Low, Close, Running Average (Open), Running STDDEV.S (Open), UB × 2.8, UB × 2.1, UB*1.4, UB*.7, UB*.35, LB*2.8, LB*2.1, LB*1.4, LB*.7, LB*.35
+        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close', 'Running Average (Open)', 'Running STDDEV.S (Open)', 'UB × 2.8', 'UB × 2.1', 'UB*1.4', 'UB*.7', 'UB*.35', 'LB*2.8', 'LB*2.1', 'LB*1.4', 'LB*.7', 'LB*.35']
         display_df = display_df[cols]
         
         # Display table with enhanced formatting and column configuration
@@ -668,6 +939,56 @@ def main():
                     "Running STDDEV.S (Open)",
                     width="medium",
                     help="Cumulative sample standard deviation of Open prices from row 1 to current row (Excel =STDEV.S($Open$1:Open_i)). Row 1 is blank (needs at least 2 values). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+                ),
+                "UB × 2.8": st.column_config.TextColumn(
+                    "UB × 2.8",
+                    width="medium",
+                    help="Upper Band calculated as Average + (Standard Deviation × 2.8). Excel equivalent: =F22+G22*2.8. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "UB × 2.1": st.column_config.TextColumn(
+                    "UB × 2.1",
+                    width="medium",
+                    help="Upper Band calculated as Average + (Standard Deviation × 2.1). Excel equivalent: =F22+G22*2.1. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "UB*1.4": st.column_config.TextColumn(
+                    "UB*1.4",
+                    width="medium",
+                    help="Upper Band calculated as Average + (Standard Deviation × 1.4). Excel equivalent: =F22+G22*1.4. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "UB*.7": st.column_config.TextColumn(
+                    "UB*.7",
+                    width="medium",
+                    help="Upper Band calculated as Average + (Standard Deviation × 0.7). Excel equivalent: =F22+G22*0.7. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "UB*.35": st.column_config.TextColumn(
+                    "UB*.35",
+                    width="medium",
+                    help="Upper Band calculated as Average + (Standard Deviation × 0.35). Excel equivalent: =F22+G22*0.35. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "LB*2.8": st.column_config.TextColumn(
+                    "LB*2.8",
+                    width="medium",
+                    help="Lower Band calculated as Average - (Standard Deviation × 2.8). Excel equivalent: =F22-G22*2.8. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "LB*2.1": st.column_config.TextColumn(
+                    "LB*2.1",
+                    width="medium",
+                    help="Lower Band calculated as Average - (Standard Deviation × 2.1). Excel equivalent: =F22-G22*2.1. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "LB*1.4": st.column_config.TextColumn(
+                    "LB*1.4",
+                    width="medium",
+                    help="Lower Band calculated as Average - (Standard Deviation × 1.4). Excel equivalent: =F22-G22*1.4. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "LB*.7": st.column_config.TextColumn(
+                    "LB*.7",
+                    width="medium",
+                    help="Lower Band calculated as Average - (Standard Deviation × 0.7). Excel equivalent: =F22-G22*0.7. Shows blank if Average or STDDEV.S is missing."
+                ),
+                "LB*.35": st.column_config.TextColumn(
+                    "LB*.35",
+                    width="medium",
+                    help="Lower Band calculated as Average - (Standard Deviation × 0.35). Excel equivalent: =F22-G22*0.35. Shows blank if Average or STDDEV.S is missing."
                 )
             }
         )
@@ -692,7 +1013,7 @@ def main():
         col_export1, col_export2 = st.columns([3, 1])
         
         with col_export1:
-            st.info(f"Ready to export {len(data)} rows of OHLC data")
+            st.info(f"Ready to export {len(data)} rows of ROARSTAR data")
         
         with col_export2:
             if st.button("📥 Export to CSV", use_container_width=True):
@@ -721,7 +1042,7 @@ def main():
     st.markdown("---")
     st.markdown(
         "<div style='text-align: center; color: #666; padding: 1rem;'>"
-        "Stock OHLC Analysis Admin Dashboard | Professional Trading-Grade Candle Analysis"
+        "Roarstar Stock Analysis | Professional Trading-Grade Candle Analysis"
         "</div>",
         unsafe_allow_html=True
     )

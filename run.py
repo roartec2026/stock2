@@ -1,5 +1,5 @@
 """
-Launcher script for Stock OHLC Analysis Admin Dashboard
+Launcher script for Stock ROARSTAR Analysis Admin Dashboard
 Checks and installs required packages, then runs the dashboard.
 """
 
@@ -45,7 +45,7 @@ def install_package(package_spec):
 def check_and_install_packages():
     """Check all required packages and install missing ones."""
     print("=" * 60)
-    print("Stock OHLC Dashboard - Package Checker")
+    print("Stock ROARSTAR Dashboard - Package Checker")
     print("=" * 60)
     print()
     
@@ -84,7 +84,7 @@ def check_and_install_packages():
 
 def run_dashboard():
     """Run the main dashboard application."""
-    print("Starting Stock OHLC Analysis Admin Dashboard...")
+    print("Starting Stock ROARSTAR Analysis Admin Dashboard...")
     print()
     print("The dashboard will open in your default web browser.")
     print("If it doesn't open automatically, go to: http://localhost:8501")

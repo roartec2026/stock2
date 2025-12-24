@@ -1,9 +1,9 @@
 #!/bin/bash
-# Linux/Mac shell script launcher for Stock OHLC Dashboard
+# Linux/Mac shell script launcher for Stock ROARSTAR Dashboard
 # Checks and installs packages, then runs the dashboard
 
 echo "============================================================"
-echo "Stock OHLC Analysis Admin Dashboard - Launcher"
+echo "Stock ROARSTAR Analysis Admin Dashboard - Launcher"
 echo "============================================================"
 echo ""
 

@@ -1,9 +1,9 @@
 @echo off
-REM Windows batch file launcher for Stock OHLC Dashboard
+REM Windows batch file launcher for Stock ROARSTAR Dashboard
 REM Checks and installs packages, then runs the dashboard
 
 echo ============================================================
-echo Stock OHLC Analysis Admin Dashboard - Launcher
+echo Stock ROARSTAR Analysis Admin Dashboard - Launcher
 echo ============================================================
 echo.
 
