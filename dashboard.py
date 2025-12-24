@@ -234,9 +234,9 @@ class DataFetcher:
                 
                 return None, error_msg
             
-            # Get last 'count' candles and sort chronologically (newest first, then older)
-            # This shows the most recent previous candle first, then older ones
-            result = df_filtered.tail(count).sort_index(ascending=False)
+            # Get last 'count' candles and sort chronologically (oldest first, then newer)
+            # This shows the oldest previous candle first, then newer ones
+            result = df_filtered.tail(count).sort_index(ascending=True)
             
             # Check if we got fewer candles than requested (even after extending period)
             if len(result) < count:
@@ -640,16 +640,26 @@ def main():
         # Add info about trading days
         st.info("ℹ️ **Note:** Only trading days (Monday-Friday) are shown. Weekends and holidays are automatically excluded by the data source.")
         
-        # Prepare display dataframe (data is already sorted - newest previous candle first)
+        # Prepare display dataframe (data is already sorted - oldest previous candle first)
         display_df = data.copy()
-        # Ensure order: most recent previous candle first, then older ones
-        display_df = display_df.sort_index(ascending=False)
-        display_df.insert(0, 'No', range(1, len(display_df) + 1))
-        display_df.insert(1, 'Period', display_df.index)
+        # Ensure order: oldest previous candle first, then newer ones
+        display_df = display_df.sort_index(ascending=True)
+        
+        # Preserve Period (datetime index) before resetting index
+        period_series = display_df.index.copy()
+        
+        # Reset index to add row numbers
         display_df = display_df.reset_index(drop=True)
         
+        # Insert No and Period columns
+        display_df.insert(0, 'No', range(1, len(display_df) + 1))
+        display_df.insert(1, 'Period', period_series)
+        
+        # Ensure Period is datetime type for proper formatting
+        display_df['Period'] = pd.to_datetime(display_df['Period'])
+        
         # Add day of week column for clarity
-        display_df['Day'] = pd.to_datetime(display_df['Period']).dt.day_name()
+        display_df['Day'] = display_df['Period'].dt.day_name()
         
         # Format numeric columns with currency and thousand separators for better readability
         def format_currency(value):
@@ -659,26 +669,35 @@ def main():
         # Store original numeric values for statistics
         numeric_data = data.copy()
         
-        # Calculate Running Average (Open) using rolling window of 20 rows
+        # Calculate Running Average (Open) using forward-looking rolling window of 20 rows
         # Works for all timeframes: Hourly, Daily, Weekly, Monthly
         # First, ensure data is in chronological order (oldest first) for correct rolling calculation
         numeric_data_sorted = numeric_data.sort_index(ascending=True)
         
-        # Calculate rolling average using rolling(window=20).mean() - average of last 20 Open values
-        # Row 1: average of rows 1-20
-        # Row 2: average of rows 2-21
-        # Row 3: average of rows 3-22
-        # First 19 rows will be NaN (need at least 20 rows to calculate)
-        # This works for any timeframe: calculates average of 20 consecutive candles
-        running_avg = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).mean()
+        # Calculate rolling average with forward-looking window: Row 1 uses rows 1-20, Row 2 uses rows 2-21, etc.
+        # Pandas rolling is backward-looking by default (row 20 = avg of rows 1-20)
+        # To make it forward-looking (row 1 = avg of rows 1-20), we shift the result backward by 19 positions
+        # This ensures:
+        # Row 1: average of rows 1-20 (first 20 Open values)
+        # Row 2: average of rows 2-21 (Open values from row 2 to row 21, excluding row 1)
+        # Row 3: average of rows 3-22 (Open values from row 3 to row 22, excluding rows 1-2)
+        # Rows that don't have 20 forward values will be NaN
+        rolling_avg_backward = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).mean()
+        # Shift backward by 19 positions: value at row 20 moves to row 1, value at row 21 moves to row 2, etc.
+        running_avg = rolling_avg_backward.shift(periods=-19)
         
-        # Calculate Running STDDEV.S (Open) using rolling(window=20).std(ddof=1) - sample standard deviation
-        # Excel equivalent: =STDEV.S(Open_i:Open_i+19) for row i
+        # Calculate forward-looking rolling STDDEV.S: Row 1 uses rows 1-20, Row 2 uses rows 2-21, etc.
+        # Same forward-looking logic as average
+        # Row 1: STDDEV of rows 1-20 (first 20 Open values)
+        # Row 2: STDDEV of rows 2-21 (Open values from row 2 to row 21, excluding row 1)
+        # Row 3: STDDEV of rows 3-22 (Open values from row 3 to row 22, excluding rows 1-2)
+        # Rows that don't have 20 forward values will be NaN
         # ddof=1 ensures sample standard deviation (n-1 in denominator) like Excel STDEV.S
-        # First 19 rows will be NaN (needs at least 20 values for rolling standard deviation)
-        running_stddev = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)
+        rolling_stddev_backward = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)
+        # Shift backward by 19 positions: value at row 20 moves to row 1, value at row 21 moves to row 2, etc.
+        running_stddev = rolling_stddev_backward.shift(periods=-19)
         
-        # Map running average and STDDEV back to display_df order (newest first for display)
+        # Map running average and STDDEV back to display_df order (oldest first for display)
         # Create mappings from index to values
         running_avg_dict = running_avg.to_dict()
         running_stddev_dict = running_stddev.to_dict()
@@ -800,18 +819,20 @@ def main():
         display_df['Low'] = display_df['Low'].apply(format_currency)
         display_df['Close'] = display_df['Close'].apply(format_currency)
         
-        # Format Running Average (Open) - handle NaN for first 19 rows (show blank)
+        # Format Running Average (Open) - handle NaN (show blank)
+        # Rows that don't have 20 forward values will be NaN (first rows and last 19 rows)
         def format_running_avg(value):
             if pd.isna(value):
-                return "—"  # Show blank/dash for NaN (first 19 rows need at least 20 values for rolling calculation)
+                return "—"  # Show blank/dash for NaN (need 20 forward rows to calculate)
             return format_currency(value)
         
         display_df['Running Average (Open)'] = display_df['Running Average (Open)'].apply(format_running_avg)
         
-        # Format Running STDDEV.S (Open) - handle NaN for first 19 rows (show blank)
+        # Format Running STDDEV.S (Open) - handle NaN (show blank)
+        # Rows that don't have 20 forward values will be NaN (first rows and last 19 rows)
         def format_stddev(value):
             if pd.isna(value):
-                return "—"  # Show blank/dash for NaN (first 19 rows need at least 20 values for rolling calculation)
+                return "—"  # Show blank/dash for NaN (need 20 forward rows to calculate)
             return format_currency(value)
         
         display_df['Running STDDEV.S (Open)'] = display_df['Running STDDEV.S (Open)'].apply(format_stddev)
@@ -944,12 +965,12 @@ def main():
                 "Running Average (Open)": st.column_config.TextColumn(
                     "Running Average (Open)",
                     width="medium",
-                    help="Rolling average of last 20 Open prices (Row 1: avg of rows 1-20, Row 2: avg of rows 2-21, etc.). First 19 rows show blank (need 20 rows). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+                    help="Forward-looking rolling average of 20 Open prices (Row 1: avg of rows 1-20, Row 2: avg of rows 2-21, Row 3: avg of rows 3-22, etc.). Rows without 20 forward values show blank. Works for all timeframes: Hourly, Daily, Weekly, Monthly."
                 ),
                 "Running STDDEV.S (Open)": st.column_config.TextColumn(
                     "Running STDDEV.S (Open)",
                     width="medium",
-                    help="Rolling sample standard deviation of last 20 Open prices (Row 1: stddev of rows 1-20, Row 2: stddev of rows 2-21, etc.). First 19 rows show blank (need 20 rows). Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+                    help="Forward-looking rolling sample standard deviation of 20 Open prices (Row 1: stddev of rows 1-20, Row 2: stddev of rows 2-21, Row 3: stddev of rows 3-22, etc.). Rows without 20 forward values show blank. Works for all timeframes: Hourly, Daily, Weekly, Monthly."
                 ),
                 "UB × 2.8": st.column_config.TextColumn(
                     "UB × 2.8",
@@ -1028,11 +1049,14 @@ def main():
         
         with col_export2:
             if st.button("📥 Export to CSV", use_container_width=True):
-                # Calculate Running Average (Open) and Running STDDEV.S (Open) for CSV export (rolling window of 20 rows)
+                # Calculate Running Average (Open) and Running STDDEV.S (Open) for CSV export (forward-looking rolling window of 20 rows)
                 # Ensure chronological order for correct rolling calculation
                 numeric_data_sorted = numeric_data.sort_index(ascending=True)
-                running_avg_series = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).mean()
-                running_stddev_series = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)  # Sample STDDEV (STDEV.S)
+                # Calculate backward-looking rolling, then shift to make it forward-looking
+                rolling_avg_backward = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).mean()
+                running_avg_series = rolling_avg_backward.shift(periods=-19)  # Shift to make forward-looking
+                rolling_stddev_backward = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)
+                running_stddev_series = rolling_stddev_backward.shift(periods=-19)  # Shift to make forward-looking
                 filepath = export_to_csv(
                     data,
                     st.session_state.get('current_symbol', 'STOCK'),
