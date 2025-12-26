@@ -1,4 +1,4 @@
-# Stock ROARSTAR Analysis Admin Dashboard
+# Stock ROARSTAR Analysis Admin Dashboard (Branch: sto1.5)
 
 A professional web-based admin dashboard for analyzing stock ROARSTAR (Open, High, Low, Close) data using Streamlit and Python.
 

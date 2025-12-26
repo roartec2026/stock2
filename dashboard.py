@@ -9,6 +9,7 @@ import pandas as pd
 import json
 import os
 import time
+import random
 from datetime import datetime, date, time as dt_time
 from typing import Optional, Tuple
 
@@ -444,6 +445,91 @@ def main():
         
         st.markdown("---")
         
+        # Random Number Feature Section
+        st.subheader("🎲 Random Number Feature")
+        
+        # Initialize session state for random number feature
+        if 'random_feature_enabled' not in st.session_state:
+            st.session_state.random_feature_enabled = False
+        if 'random_t161' not in st.session_state:
+            st.session_state.random_t161 = None
+        if 'random_t162' not in st.session_state:
+            st.session_state.random_t162 = None
+        if 'random_locked' not in st.session_state:
+            st.session_state.random_locked = False
+        
+        # Enable/Disable toggle
+        random_enabled = st.checkbox(
+            "Enable Random Number Column",
+            value=st.session_state.random_feature_enabled,
+            help="Enable or disable the random number column feature"
+        )
+        
+        # Update session state
+        if random_enabled != st.session_state.random_feature_enabled:
+            st.session_state.random_feature_enabled = random_enabled
+            if not random_enabled:
+                # Reset locked state when disabled
+                st.session_state.random_locked = False
+        
+        # Show input fields only if enabled
+        if random_enabled:
+            # Check if values are locked
+            if st.session_state.random_locked:
+                st.success("✅ Random Number Settings Locked")
+                st.info(f"**T161:** {st.session_state.random_t161}\n\n**T162:** {st.session_state.random_t162}")
+                
+                # Show status message
+                if 'current_data' in st.session_state and st.session_state['current_data'] is not None:
+                    st.success("🎲 Random Number column is active in the data table!")
+                else:
+                    st.warning("⚠️ Fetch data to see the Random Number column")
+                
+                # Unlock button
+                if st.button("🔓 Unlock Settings", use_container_width=True):
+                    st.session_state.random_locked = False
+                    st.rerun()
+            else:
+                # Input fields for T161 and T162
+                t161 = st.number_input(
+                    "T161",
+                    value=float(st.session_state.random_t161) if st.session_state.random_t161 is not None else 100.0,
+                    step=0.01,
+                    format="%.2f",
+                    help="Upper bound for random number calculation"
+                )
+                
+                t162 = st.number_input(
+                    "T162",
+                    value=float(st.session_state.random_t162) if st.session_state.random_t162 is not None else 0.0,
+                    step=0.01,
+                    format="%.2f",
+                    help="Lower bound for random number calculation"
+                )
+                
+                # Validate T161 > T162
+                if t161 <= t162:
+                    st.warning("⚠️ T161 must be greater than T162")
+                
+                # Save/Submit/Done button
+                col_save1, col_save2 = st.columns(2)
+                with col_save1:
+                    if st.button("💾 Save & Lock", use_container_width=True, disabled=(t161 <= t162)):
+                        if t161 > t162:
+                            st.session_state.random_t161 = t161
+                            st.session_state.random_t162 = t162
+                            st.session_state.random_locked = True
+                            st.success("✅ Settings saved and locked!")
+                            st.rerun()
+                with col_save2:
+                    if st.button("🔄 Reset", use_container_width=True):
+                        st.session_state.random_t161 = None
+                        st.session_state.random_t162 = None
+                        st.session_state.random_locked = False
+                        st.rerun()
+        
+        st.markdown("---")
+        
         # Info
         st.info("""
         **Instructions:**
@@ -637,6 +723,15 @@ def main():
         st.markdown("---")
         st.header("📊 ROARSTAR Data Table")
         
+        # Show Random Number Feature status
+        if (st.session_state.get('random_feature_enabled', False) and 
+            st.session_state.get('random_locked', False) and
+            st.session_state.get('random_t161') is not None and
+            st.session_state.get('random_t162') is not None):
+            st.success(f"🎲 **Random Number Column Active** | T161: {st.session_state.random_t161} | T162: {st.session_state.random_t162}")
+        elif st.session_state.get('random_feature_enabled', False):
+            st.info("ℹ️ **Random Number Feature:** Enabled but not locked. Go to sidebar to enter T161/T162 and click 'Save & Lock' to activate the column.")
+        
         # Add info about trading days
         st.info("ℹ️ **Note:** Only trading days (Monday-Friday) are shown. Weekends and holidays are automatically excluded by the data source.")
         
@@ -819,6 +914,33 @@ def main():
         display_df['Low'] = display_df['Low'].apply(format_currency)
         display_df['Close'] = display_df['Close'].apply(format_currency)
         
+        # Add Random Number column if feature is enabled and locked
+        random_feature_active = (st.session_state.get('random_feature_enabled', False) and 
+                                 st.session_state.get('random_locked', False) and
+                                 st.session_state.get('random_t161') is not None and
+                                 st.session_state.get('random_t162') is not None)
+        
+        if random_feature_active:
+            t161 = st.session_state.random_t161
+            t162 = st.session_state.random_t162
+            
+            # Calculate random number for each row using formula: random.random() * (T161 - T162) + T162
+            def calculate_random_number():
+                return random.random() * (t161 - t162) + t162
+            
+            # Generate random numbers for all rows
+            display_df['Random Number'] = [calculate_random_number() for _ in range(len(display_df))]
+            
+            # Format random number with currency symbol
+            def format_random_number(value):
+                return format_currency(value)
+            
+            display_df['Random Number'] = display_df['Random Number'].apply(format_random_number)
+            
+            # Debug: Verify column was added
+            if 'Random Number' not in display_df.columns:
+                st.error("⚠️ Error: Random Number column was not added to dataframe")
+        
         # Format Running Average (Open) - handle NaN (show blank)
         # Rows that don't have 20 forward values will be NaN (first rows and last 19 rows)
         def format_running_avg(value):
@@ -917,112 +1039,133 @@ def main():
         
         display_df['LB*.35'] = display_df['LB*.35'].apply(format_lb_0_35)
         
-        # Reorder columns: No, Period, Day, Open, High, Low, Close, Running Average (Open), Running STDDEV.S (Open), UB × 2.8, UB × 2.1, UB*1.4, UB*.7, UB*.35, LB*2.8, LB*2.1, LB*1.4, LB*.7, LB*.35
-        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close', 'Running Average (Open)', 'Running STDDEV.S (Open)', 'UB × 2.8', 'UB × 2.1', 'UB*1.4', 'UB*.7', 'UB*.35', 'LB*2.8', 'LB*2.1', 'LB*1.4', 'LB*.7', 'LB*.35']
+        # Reorder columns: No, Period, Day, Open, High, Low, Close, [Random Number if enabled], Running Average (Open), Running STDDEV.S (Open), UB × 2.8, UB × 2.1, UB*1.4, UB*.7, UB*.35, LB*2.8, LB*2.1, LB*1.4, LB*.7, LB*.35
+        cols = ['No', 'Period', 'Day', 'Open', 'High', 'Low', 'Close']
+        
+        # Add Random Number column if it exists (feature enabled and locked)
+        if 'Random Number' in display_df.columns:
+            cols.append('Random Number')
+        
+        cols.extend(['Running Average (Open)', 'Running STDDEV.S (Open)', 'UB × 2.8', 'UB × 2.1', 'UB*1.4', 'UB*.7', 'UB*.35', 'LB*2.8', 'LB*2.1', 'LB*1.4', 'LB*.7', 'LB*.35'])
         display_df = display_df[cols]
+        
+        # Build column configuration dynamically
+        column_config = {
+            "No": st.column_config.NumberColumn(
+                "No",
+                width="small",
+                format="%d"
+            ),
+            "Period": st.column_config.DatetimeColumn(
+                "Period",
+                format="YYYY-MM-DD HH:mm:ss",
+                width="medium"
+            ),
+            "Day": st.column_config.TextColumn(
+                "Day",
+                width="small",
+                help="Day of the week (weekends are automatically excluded)"
+            ),
+            "Open": st.column_config.TextColumn(
+                "Open",
+                width="medium",
+                help="Opening price"
+            ),
+            "High": st.column_config.TextColumn(
+                "High",
+                width="medium",
+                help="Highest price"
+            ),
+            "Low": st.column_config.TextColumn(
+                "Low",
+                width="medium",
+                help="Lowest price"
+            ),
+            "Close": st.column_config.TextColumn(
+                "Close",
+                width="medium",
+                help="Closing price"
+            )
+        }
+        
+        # Add Random Number column config if it exists (insert after Close)
+        if 'Random Number' in display_df.columns:
+            column_config["Random Number"] = st.column_config.TextColumn(
+                "Random Number",
+                width="medium",
+                help="Random number calculated using formula: random.random() * (T161 - T162) + T162. Only shown when Random Number Feature is enabled and locked."
+            )
+        
+        # Add remaining columns
+        column_config.update({
+            "Running Average (Open)": st.column_config.TextColumn(
+                "Running Average (Open)",
+                width="medium",
+                help="Forward-looking rolling average of 20 Open prices (Row 1: avg of rows 1-20, Row 2: avg of rows 2-21, Row 3: avg of rows 3-22, etc.). Rows without 20 forward values show blank. Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+            ),
+            "Running STDDEV.S (Open)": st.column_config.TextColumn(
+                "Running STDDEV.S (Open)",
+                width="medium",
+                help="Forward-looking rolling sample standard deviation of 20 Open prices (Row 1: stddev of rows 1-20, Row 2: stddev of rows 2-21, Row 3: stddev of rows 3-22, etc.). Rows without 20 forward values show blank. Works for all timeframes: Hourly, Daily, Weekly, Monthly."
+            ),
+            "UB × 2.8": st.column_config.TextColumn(
+                "UB × 2.8",
+                width="medium",
+                help="Upper Band calculated as Average + (Standard Deviation × 2.8). Excel equivalent: =F22+G22*2.8. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "UB × 2.1": st.column_config.TextColumn(
+                "UB × 2.1",
+                width="medium",
+                help="Upper Band calculated as Average + (Standard Deviation × 2.1). Excel equivalent: =F22+G22*2.1. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "UB*1.4": st.column_config.TextColumn(
+                "UB*1.4",
+                width="medium",
+                help="Upper Band calculated as Average + (Standard Deviation × 1.4). Excel equivalent: =F22+G22*1.4. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "UB*.7": st.column_config.TextColumn(
+                "UB*.7",
+                width="medium",
+                help="Upper Band calculated as Average + (Standard Deviation × 0.7). Excel equivalent: =F22+G22*0.7. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "UB*.35": st.column_config.TextColumn(
+                "UB*.35",
+                width="medium",
+                help="Upper Band calculated as Average + (Standard Deviation × 0.35). Excel equivalent: =F22+G22*0.35. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "LB*2.8": st.column_config.TextColumn(
+                "LB*2.8",
+                width="medium",
+                help="Lower Band calculated as Average - (Standard Deviation × 2.8). Excel equivalent: =F22-G22*2.8. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "LB*2.1": st.column_config.TextColumn(
+                "LB*2.1",
+                width="medium",
+                help="Lower Band calculated as Average - (Standard Deviation × 2.1). Excel equivalent: =F22-G22*2.1. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "LB*1.4": st.column_config.TextColumn(
+                "LB*1.4",
+                width="medium",
+                help="Lower Band calculated as Average - (Standard Deviation × 1.4). Excel equivalent: =F22-G22*1.4. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "LB*.7": st.column_config.TextColumn(
+                "LB*.7",
+                width="medium",
+                help="Lower Band calculated as Average - (Standard Deviation × 0.7). Excel equivalent: =F22-G22*0.7. Shows blank if Average or STDDEV.S is missing."
+            ),
+            "LB*.35": st.column_config.TextColumn(
+                "LB*.35",
+                width="medium",
+                help="Lower Band calculated as Average - (Standard Deviation × 0.35). Excel equivalent: =F22-G22*0.35. Shows blank if Average or STDDEV.S is missing."
+            )
+        })
         
         # Display table with enhanced formatting and column configuration
         st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True,
-            column_config={
-                "No": st.column_config.NumberColumn(
-                    "No",
-                    width="small",
-                    format="%d"
-                ),
-                "Period": st.column_config.DatetimeColumn(
-                    "Period",
-                    format="YYYY-MM-DD HH:mm:ss",
-                    width="medium"
-                ),
-                "Day": st.column_config.TextColumn(
-                    "Day",
-                    width="small",
-                    help="Day of the week (weekends are automatically excluded)"
-                ),
-                "Open": st.column_config.TextColumn(
-                    "Open",
-                    width="medium",
-                    help="Opening price"
-                ),
-                "High": st.column_config.TextColumn(
-                    "High",
-                    width="medium",
-                    help="Highest price"
-                ),
-                "Low": st.column_config.TextColumn(
-                    "Low",
-                    width="medium",
-                    help="Lowest price"
-                ),
-                "Close": st.column_config.TextColumn(
-                    "Close",
-                    width="medium",
-                    help="Closing price"
-                ),
-                "Running Average (Open)": st.column_config.TextColumn(
-                    "Running Average (Open)",
-                    width="medium",
-                    help="Forward-looking rolling average of 20 Open prices (Row 1: avg of rows 1-20, Row 2: avg of rows 2-21, Row 3: avg of rows 3-22, etc.). Rows without 20 forward values show blank. Works for all timeframes: Hourly, Daily, Weekly, Monthly."
-                ),
-                "Running STDDEV.S (Open)": st.column_config.TextColumn(
-                    "Running STDDEV.S (Open)",
-                    width="medium",
-                    help="Forward-looking rolling sample standard deviation of 20 Open prices (Row 1: stddev of rows 1-20, Row 2: stddev of rows 2-21, Row 3: stddev of rows 3-22, etc.). Rows without 20 forward values show blank. Works for all timeframes: Hourly, Daily, Weekly, Monthly."
-                ),
-                "UB × 2.8": st.column_config.TextColumn(
-                    "UB × 2.8",
-                    width="medium",
-                    help="Upper Band calculated as Average + (Standard Deviation × 2.8). Excel equivalent: =F22+G22*2.8. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "UB × 2.1": st.column_config.TextColumn(
-                    "UB × 2.1",
-                    width="medium",
-                    help="Upper Band calculated as Average + (Standard Deviation × 2.1). Excel equivalent: =F22+G22*2.1. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "UB*1.4": st.column_config.TextColumn(
-                    "UB*1.4",
-                    width="medium",
-                    help="Upper Band calculated as Average + (Standard Deviation × 1.4). Excel equivalent: =F22+G22*1.4. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "UB*.7": st.column_config.TextColumn(
-                    "UB*.7",
-                    width="medium",
-                    help="Upper Band calculated as Average + (Standard Deviation × 0.7). Excel equivalent: =F22+G22*0.7. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "UB*.35": st.column_config.TextColumn(
-                    "UB*.35",
-                    width="medium",
-                    help="Upper Band calculated as Average + (Standard Deviation × 0.35). Excel equivalent: =F22+G22*0.35. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "LB*2.8": st.column_config.TextColumn(
-                    "LB*2.8",
-                    width="medium",
-                    help="Lower Band calculated as Average - (Standard Deviation × 2.8). Excel equivalent: =F22-G22*2.8. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "LB*2.1": st.column_config.TextColumn(
-                    "LB*2.1",
-                    width="medium",
-                    help="Lower Band calculated as Average - (Standard Deviation × 2.1). Excel equivalent: =F22-G22*2.1. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "LB*1.4": st.column_config.TextColumn(
-                    "LB*1.4",
-                    width="medium",
-                    help="Lower Band calculated as Average - (Standard Deviation × 1.4). Excel equivalent: =F22-G22*1.4. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "LB*.7": st.column_config.TextColumn(
-                    "LB*.7",
-                    width="medium",
-                    help="Lower Band calculated as Average - (Standard Deviation × 0.7). Excel equivalent: =F22-G22*0.7. Shows blank if Average or STDDEV.S is missing."
-                ),
-                "LB*.35": st.column_config.TextColumn(
-                    "LB*.35",
-                    width="medium",
-                    help="Lower Band calculated as Average - (Standard Deviation × 0.35). Excel equivalent: =F22-G22*0.35. Shows blank if Average or STDDEV.S is missing."
-                )
-            }
+            column_config=column_config
         )
         
         # Statistics
