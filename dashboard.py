@@ -976,10 +976,31 @@ def main():
         if random_feature_active:
             t161 = st.session_state.random_t161
             t162 = st.session_state.random_t162
+            padding_count = int(st.session_state.get('random_padding_count', 20))
+            
             def calculate_random_number():
                 return random.random() * (t161 - t162) + t162
-            display_df['Random Number'] = [calculate_random_number() for _ in range(len(display_df))]
-            display_df['Random Number'] = display_df['Random Number'].apply(format_currency)
+            
+            # Generate random numbers only for the first N rows (where N = Random Padding Count)
+            # Rest of the rows will show "—"
+            random_numbers = []
+            for i in range(len(display_df)):
+                if i < padding_count:
+                    # Generate random number for first N rows
+                    random_numbers.append(calculate_random_number())
+                else:
+                    # Show "—" for remaining rows
+                    random_numbers.append(None)
+            
+            display_df['Random Number'] = random_numbers
+            
+            # Format: show currency for numbers, "—" for None
+            def format_random_number(value):
+                if value is None or pd.isna(value):
+                    return "—"
+                return format_currency(value)
+            
+            display_df['Random Number'] = display_df['Random Number'].apply(format_random_number)
         
         # Format Running Average (Open) - handle NaN (show blank)
         # Rows that don't have 20 forward values will be NaN (first rows and last 19 rows)
