@@ -472,6 +472,27 @@ def main():
                 # Reset locked state when disabled
                 st.session_state.random_locked = False
         
+        if 'random_padding_enabled' not in st.session_state:
+            st.session_state.random_padding_enabled = False
+        if 'random_padding_count' not in st.session_state:
+            st.session_state.random_padding_count = 20
+        
+        if random_enabled:
+            st.checkbox(
+                "Use Random Numbers For Padding",
+                value=st.session_state.random_padding_enabled,
+                help="When fewer than 20 forward Open values exist, pad with Random Number values for Average/STDDEV.S",
+                key="random_padding_enabled"
+            )
+            st.number_input(
+                "Random Padding Count",
+                value=int(st.session_state.random_padding_count),
+                min_value=0,
+                step=1,
+                help="How many Random Number values are available for padding when data is short",
+                key="random_padding_count"
+            )
+        
         # Show input fields only if enabled
         if random_enabled:
             # Check if values are locked
@@ -769,6 +790,19 @@ def main():
         # First, ensure data is in chronological order (oldest first) for correct rolling calculation
         numeric_data_sorted = numeric_data.sort_index(ascending=True)
         
+        random_padding_active = (st.session_state.get('random_feature_enabled', False) and 
+                                 st.session_state.get('random_locked', False) and
+                                 st.session_state.get('random_padding_enabled', False) and
+                                 st.session_state.get('random_t161') is not None and
+                                 st.session_state.get('random_t162') is not None)
+        if random_padding_active:
+            t161 = st.session_state.random_t161
+            t162 = st.session_state.random_t162
+            pad_count = int(st.session_state.get('random_padding_count', 20))
+            random_padding_values = [random.random() * (t161 - t162) + t162 for _ in range(pad_count)]
+        else:
+            random_padding_values = None
+        
         # Calculate rolling average with forward-looking window: Row 1 uses rows 1-20, Row 2 uses rows 2-21, etc.
         # Pandas rolling is backward-looking by default (row 20 = avg of rows 1-20)
         # To make it forward-looking (row 1 = avg of rows 1-20), we shift the result backward by 19 positions
@@ -791,6 +825,24 @@ def main():
         rolling_stddev_backward = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)
         # Shift backward by 19 positions: value at row 20 moves to row 1, value at row 21 moves to row 2, etc.
         running_stddev = rolling_stddev_backward.shift(periods=-19)
+        
+        if random_padding_values is not None:
+            open_series = numeric_data_sorted['Open']
+            avg_list = running_avg.tolist()
+            std_list = running_stddev.tolist()
+            for i in range(len(open_series)):
+                if pd.isna(avg_list[i]) or pd.isna(std_list[i]):
+                    window_values = open_series.iloc[i:i+20].tolist()
+                    if len(window_values) < 20:
+                        pad_n = 20 - len(window_values)
+                        pad_vals = random_padding_values[:pad_n]
+                        window_values.extend(pad_vals)
+                    if len(window_values) == 20:
+                        s = pd.Series(window_values)
+                        avg_list[i] = float(s.mean())
+                        std_list[i] = float(s.std(ddof=1))
+            running_avg = pd.Series(avg_list, index=numeric_data_sorted.index)
+            running_stddev = pd.Series(std_list, index=numeric_data_sorted.index)
         
         # Map running average and STDDEV back to display_df order (oldest first for display)
         # Create mappings from index to values
@@ -914,32 +966,41 @@ def main():
         display_df['Low'] = display_df['Low'].apply(format_currency)
         display_df['Close'] = display_df['Close'].apply(format_currency)
         
-        # Add Random Number column if feature is enabled and locked
-        random_feature_active = (st.session_state.get('random_feature_enabled', False) and 
-                                 st.session_state.get('random_locked', False) and
-                                 st.session_state.get('random_t161') is not None and
-                                 st.session_state.get('random_t162') is not None)
+        random_feature_active = (
+            st.session_state.get('random_feature_enabled', False) and
+            st.session_state.get('random_locked', False) and
+            st.session_state.get('random_t161') is not None and
+            st.session_state.get('random_t162') is not None
+        )
         
         if random_feature_active:
             t161 = st.session_state.random_t161
             t162 = st.session_state.random_t162
+            padding_count = int(st.session_state.get('random_padding_count', 20))
             
-            # Calculate random number for each row using formula: random.random() * (T161 - T162) + T162
             def calculate_random_number():
                 return random.random() * (t161 - t162) + t162
             
-            # Generate random numbers for all rows
-            display_df['Random Number'] = [calculate_random_number() for _ in range(len(display_df))]
+            # Generate random numbers only for the first N rows (where N = Random Padding Count)
+            # Rest of the rows will show "—"
+            random_numbers = []
+            for i in range(len(display_df)):
+                if i < padding_count:
+                    # Generate random number for first N rows
+                    random_numbers.append(calculate_random_number())
+                else:
+                    # Show "—" for remaining rows
+                    random_numbers.append(None)
             
-            # Format random number with currency symbol
+            display_df['Random Number'] = random_numbers
+            
+            # Format: show currency for numbers, "—" for None
             def format_random_number(value):
+                if value is None or pd.isna(value):
+                    return "—"
                 return format_currency(value)
             
             display_df['Random Number'] = display_df['Random Number'].apply(format_random_number)
-            
-            # Debug: Verify column was added
-            if 'Random Number' not in display_df.columns:
-                st.error("⚠️ Error: Random Number column was not added to dataframe")
         
         # Format Running Average (Open) - handle NaN (show blank)
         # Rows that don't have 20 forward values will be NaN (first rows and last 19 rows)
@@ -1200,6 +1261,32 @@ def main():
                 running_avg_series = rolling_avg_backward.shift(periods=-19)  # Shift to make forward-looking
                 rolling_stddev_backward = numeric_data_sorted['Open'].rolling(window=20, min_periods=20).std(ddof=1)
                 running_stddev_series = rolling_stddev_backward.shift(periods=-19)  # Shift to make forward-looking
+                random_padding_active = (st.session_state.get('random_feature_enabled', False) and 
+                                         st.session_state.get('random_locked', False) and
+                                         st.session_state.get('random_padding_enabled', False) and
+                                         st.session_state.get('random_t161') is not None and
+                                         st.session_state.get('random_t162') is not None)
+                if random_padding_active:
+                    t161 = st.session_state.random_t161
+                    t162 = st.session_state.random_t162
+                    pad_count = int(st.session_state.get('random_padding_count', 20))
+                    random_padding_values_export = [random.random() * (t161 - t162) + t162 for _ in range(pad_count)]
+                    open_series = numeric_data_sorted['Open']
+                    avg_list = running_avg_series.tolist()
+                    std_list = running_stddev_series.tolist()
+                    for i in range(len(open_series)):
+                        if pd.isna(avg_list[i]) or pd.isna(std_list[i]):
+                            window_values = open_series.iloc[i:i+20].tolist()
+                            if len(window_values) < 20:
+                                pad_n = 20 - len(window_values)
+                                pad_vals = random_padding_values_export[:pad_n]
+                                window_values.extend(pad_vals)
+                            if len(window_values) == 20:
+                                s = pd.Series(window_values)
+                                avg_list[i] = float(s.mean())
+                                std_list[i] = float(s.std(ddof=1))
+                    running_avg_series = pd.Series(avg_list, index=numeric_data_sorted.index)
+                    running_stddev_series = pd.Series(std_list, index=numeric_data_sorted.index)
                 filepath = export_to_csv(
                     data,
                     st.session_state.get('current_symbol', 'STOCK'),
